@@ -2,13 +2,16 @@ module.exports = function(grunt) {
 	var config = {};
 	config.pkg = grunt.file.readJSON("package.json");
 	config.jshint = {
-		src: ["Gruntfile.js", "src/**/*.js", "tests/**/*.js"]
+		files: ["Gruntfile.js", "src/**/*.js", "tests/**/*.js"],
+		options: {
+			jshintrc: true
+		}
 	};	
 	config.uglify = {
 
 	};
 	config.mochaTest = {
-		src: ["tests/mocha-test-suite.js"],
+		files: ["tests/promisea-test-suite.js"],
 		options: {
 			reporter: "spec"
 		}
@@ -21,4 +24,5 @@ module.exports = function(grunt) {
 	grunt.loadNpmTasks("grunt-mocha-test");
 
 	grunt.registerTask("default", ["jshint", "mochaTest"]);
+	grunt.registerTask("test", ["mochaTest"]);
 };
