@@ -1,114 +1,158 @@
-(function (window) {
+(function(window) {
 	//latter overwrite former
-	var Spai =  window.Spai || {};
+	var Spai = window.Spai || {};
 
-	var isFunction = function (value) {
+	var isFunction = function(value) {
 		return typeof value === "function";
 	};
 	var allStates = {
 		pending: 0,
 		fulfilled: 1,
-		rejected: 2
+		rejected: 2,
+		sealed: 3 //once resolve or reject
 	};
 	var mutationObserver = window.MutationObserver || window.WebKitMutationObserver;
-	var callbackQueue = [];
-	var invoke = function () {
-		for (var i = 0; i < callbackQueue.length; i++) {
-			var tuple = callbackQueue[i],
-				fn = tuple[0],
-				arg = tuple[1];
-
-			try {
-				fn(arg);
-			}
-			catch (e) {
-
-			}
-		}
-		callbackQueue = [];
-	};
 	//steal form rsvp.js
-	var flush = (function () {
-		//node env
+	var asyncInvoke = (function() {
 		if (typeof process !== 'undefined' && toString.call(process) === '[object process]') {
-			return function() {
-				process.nextTick(invoke);
+			//node env
+			return function(callback) {
+				process.nextTick(callback);
 			};
-		//modern browser
 		} else if (mutationObserver) {
+			//modern browser
 			//todo
-		//old browser
+			return function(callback) {
+				setTimeout(callback, 1);
+			};
 		} else {
-			//todo
+			//old browser
+			return function(callback) {
+				setTimeout(callback, 1);
+			};
 		}
 	})();
-	var asycnInvoke = function (fn, arg) {
-		callbackQueue.push([fn, arg]);
-		flush();
-	};
+	var progress = function(thenable, onFulfilled, onRejected, child) {
+		var resolveChild = function(value) {
+			child._state = allStates.fulfilled;
+			child._resolveValue = value;
+		},
+			rejectChild = function(reason) {
+				child._state = allStates.rejected;
+				child._rejectedReason = reason;
+			};
 
-	Spai.promise = function (fn) {
-		var promise = {};
-		//private properties
-		var _state = allStates.pending,
-			_onFulfilledQueue = [],
-			_onRejectedQueue = [],
-			_resolveValue,
-			_rejectedReason;
-		promise.then = function (onFulfilled, onRejected) {
-			var returnValue;
-			if (_state === allStates.fulfilled && isFunction(onFulfilled)) {
-				asycnInvoke(onFulfilled, _resolveValue);
+		if (thenable._state === allStates.fulfilled) {
+			if (isFunction(onFulfilled)) {
+				try {
+					var returnVal = onFulfilled(thenable._resolveValue);
+					resolveChild(returnVal);
+				} catch (e) {
+					rejectChild(e);
+				}
+			} else {
+				resolveChild(thenable._resolveValue);
 			}
-			else if (_state === allStates.rejected && isFunction(onRejected)) {
-				asycnInvoke(onRejected, _rejectedReason);
+		} else if (thenable._state === allStates.rejected) {
+			if (isFunction(onRejected)) {
+				try {
+					var returnVal = onRejected(thenable._rejectedReason);
+					resolveChild(returnVal);
+				} catch(e) {
+					rejectChild(e);
+				}
+			} else {
+				rejectChild(thenable._rejectedReason);
 			}
-			else {
-				_onFulfilledQueue.push(onFulfilled);
-				_onRejectedQueue.push(onRejected);
-			}	
-
-			//THIS LINE is A BUG!
-			return promise;
-		};
-
-		var resolve = function (value) {
-			if (_state === allStates.pending) {
-				_state = allStates.fulfilled;
-				_resolveValue = value;
-			}
-			else {
-				return;
-			}
-
-			for (var i = 0; i < _onFulfilledQueue.length; i++) {
-				asycnInvoke(_onFulfilledQueue[i], _resolveValue);
-			}
-		};
-		var reject = function (reason) {
-			if (_state === allStates.pending) {
-				_state = allStates.rejected;
-				_rejectedReason = reason;
-			}
-			else {
-				return;
-			}
-
-			for (var i = 0; i < _onRejectedQueue.length; i++) {
-				asycnInvoke(_onRejectedQueue[i], _rejectedReason);
-			}
-		};
-
-		if (isFunction(fn)) {
-			fn.call(this, resolve, reject);
 		}
+	};
+	var resolveAll = function(thenable, value) {
+		thenable._state = allStates.fulfilled;
+		for (var i = 0, queue = thenable._thenQueue; i < queue.length; i++) {
+			var tuple = queue[i];
+			var onFulfilled = tuple[allStates.fulfilled],
+				onRejected = tuple[allStates.rejected],
+				child = tuple[3];
+
+			progress(thenable, onFulfilled, onRejected, child);
+			resolveAll(child, value);
+		}
+	};
+	var resolve = function(thenable, value) {
+		if (thenable._state !== allStates.pending) {
+			return;
+		}
+		thenable._state = allStates.sealed;
+		thenable._resolveValue = value;
+
+		asyncInvoke(function() {
+			resolveAll(thenable, value);
+		});
+	};
+	var rejectAll = function(thenable, reason) {
+		thenable._state = allStates.rejected;
+		for (var i = 0, queue = thenable._thenQueue; i < queue.length; i++) {
+			var tuple = queue[i];
+			var onFulfilled = tuple[allStates.fulfilled],
+				onRejected = tuple[allStates.rejected],
+				child = tuple[3];
+
+			progress(thenable, onFulfilled, onRejected, child);
+			rejectAll(child, reason);
+		}
+	};
+	var reject = function(thenable, reason) {
+		if (thenable._state !== allStates.pending) {
+			return;
+		}
+		thenable._state = allStates.sealed;
+		thenable._rejectedReason = reason;
+
+		asyncInvoke(function() {
+			rejectAll(thenable, reason);
+		});
+	};
+	var makeThenable = function() {
+		var thenable = {
+			_thenQueue: [],
+			_state: allStates.pending
+		};
+
+		thenable.then = function(onFulfilled, onRejected) {
+			var child = makeThenable();
+			if (thenable._state === allStates.fulfilled || thenable._state === allStates.rejected) {
+				asyncInvoke(function() {
+					progress(thenable, onFulfilled, onRejected, child);
+				});
+			} else {
+				//tuple[0] is just for pretty and clean
+				thenable._thenQueue.push([0, onFulfilled, onRejected, child]);
+			}
+			return child;
+		};
+
+		return thenable;
+	};
+	Spai.promise = function(initCallback) {
+		var promise = makeThenable();
+		var resolveWrapper = function(value) {
+			resolve(promise, value);
+		};
+		var rejectWrapper = function(reason) {
+			reject(promise, reason);
+		};
+
+		if (isFunction(initCallback)) {
+			initCallback.call(this, resolveWrapper, rejectWrapper);
+		}
+
 		return promise;
 	};
 
 	//meets test suite's need
-	Spai.defer = function () {
+	Spai.defer = function() {
 		var deferred = {};
-		deferred.promise = Spai.promise(function (resolve, reject) {
+		deferred.promise = Spai.promise(function(resolve, reject) {
 			deferred.resolve = resolve;
 			deferred.reject = reject;
 		});
@@ -118,8 +162,7 @@
 	if (typeof module === "object" && module && typeof module.exports === "object") {
 		//node env
 		module.exports = Spai;
-	}
-	else {
+	} else {
 		//browser env
 		window.Spai = Spai;
 	}

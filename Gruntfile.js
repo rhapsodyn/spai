@@ -11,9 +11,9 @@ module.exports = function(grunt) {
 
 	};
 	config.mochaTest = {
-		files: ["tests/promisea-test-suite.js"],
+		files: ["tests/promise-aplus-test-suite.js"],
 		options: {
-			reporter: "spec"
+			reporter: "dot"
 		}
 	};
 
