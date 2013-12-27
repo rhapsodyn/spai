@@ -1,3 +1,4 @@
+//todo: merge _rejectedReason and _resolvedValue into _detail
 (function(window) {
 	//latter overwrite former
 	var Spai = window.Spai || {};
@@ -21,7 +22,7 @@
 			};
 		} else if (mutationObserver) {
 			//modern browser
-			//todo
+			//todo: this impl is not RIGHT
 			return function(callback) {
 				setTimeout(callback, 1);
 			};
@@ -35,30 +36,38 @@
 	var progress = function(thenable, onFulfilled, onRejected, child) {
 		var resolveChild = function(value) {
 			child._state = allStates.fulfilled;
-			child._resolveValue = value;
+			child._resolvedValue = value;
 		},
 			rejectChild = function(reason) {
 				child._state = allStates.rejected;
 				child._rejectedReason = reason;
+			},
+			handleReturn = function(returnVal) {
+				//todo: handle every situations 
+				if (returnVal === child) {
+				}
+				else{
+					resolveChild(returnVal);
+				}
 			};
 
 		if (thenable._state === allStates.fulfilled) {
 			if (isFunction(onFulfilled)) {
 				try {
-					var returnVal = onFulfilled(thenable._resolveValue);
+					var returnVal = onFulfilled(thenable._resolvedValue);
 					resolveChild(returnVal);
 				} catch (e) {
 					rejectChild(e);
 				}
 			} else {
-				resolveChild(thenable._resolveValue);
+				resolveChild(thenable._resolvedValue);
 			}
 		} else if (thenable._state === allStates.rejected) {
 			if (isFunction(onRejected)) {
 				try {
 					var returnVal = onRejected(thenable._rejectedReason);
 					resolveChild(returnVal);
-				} catch(e) {
+				} catch (e) {
 					rejectChild(e);
 				}
 			} else {
@@ -66,8 +75,10 @@
 			}
 		}
 	};
-	var resolveAll = function(thenable, value) {
-		thenable._state = allStates.fulfilled;
+	var progressAll = function(thenable, state) {
+		if (state) {
+			thenable._state = state;
+		}
 		for (var i = 0, queue = thenable._thenQueue; i < queue.length; i++) {
 			var tuple = queue[i];
 			var onFulfilled = tuple[allStates.fulfilled],
@@ -75,31 +86,19 @@
 				child = tuple[3];
 
 			progress(thenable, onFulfilled, onRejected, child);
-			resolveAll(child, value);
+			progressAll(child);
 		}
-	};
+	}
 	var resolve = function(thenable, value) {
 		if (thenable._state !== allStates.pending) {
 			return;
 		}
 		thenable._state = allStates.sealed;
-		thenable._resolveValue = value;
+		thenable._resolvedValue = value;
 
 		asyncInvoke(function() {
-			resolveAll(thenable, value);
+			progressAll(thenable, allStates.fulfilled);
 		});
-	};
-	var rejectAll = function(thenable, reason) {
-		thenable._state = allStates.rejected;
-		for (var i = 0, queue = thenable._thenQueue; i < queue.length; i++) {
-			var tuple = queue[i];
-			var onFulfilled = tuple[allStates.fulfilled],
-				onRejected = tuple[allStates.rejected],
-				child = tuple[3];
-
-			progress(thenable, onFulfilled, onRejected, child);
-			rejectAll(child, reason);
-		}
 	};
 	var reject = function(thenable, reason) {
 		if (thenable._state !== allStates.pending) {
@@ -109,7 +108,7 @@
 		thenable._rejectedReason = reason;
 
 		asyncInvoke(function() {
-			rejectAll(thenable, reason);
+			progressAll(thenable, allStates.rejected);
 		});
 	};
 	var makeThenable = function() {
