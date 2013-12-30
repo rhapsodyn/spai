@@ -3,8 +3,11 @@
 	//latter overwrite former
 	var Spai = window.Spai || {};
 
-	var isFunction = function(value) {
-		return typeof value === "function";
+	var isFunction = function(x) {
+		return typeof x === "function";
+	};
+	var isObject = function(x) {
+		return typeof x === "object" && x !== null
 	};
 	var allStates = {
 		pending: 0,
@@ -12,6 +15,8 @@
 		rejected: 2,
 		sealed: 3 //once resolve or reject
 	};
+	//easy to debug
+	var cid = 0;
 	var mutationObserver = window.MutationObserver || window.WebKitMutationObserver;
 	//steal form rsvp.js
 	var asyncInvoke = (function() {
@@ -42,12 +47,23 @@
 				child._state = allStates.rejected;
 				child._rejectedReason = reason;
 			},
-			handleReturn = function(returnVal) {
-				//todo: handle every situations 
-				if (returnVal === child) {
-				}
-				else{
-					resolveChild(returnVal);
+			handleReturn = function(value) {
+				if (value === child) {
+					rejectChild(new TypeError("thenable can not return the same promise"));
+				} else if (isFunction(value) || isObject(value)) {
+					//this line is SOMETHING!
+					var then = value.then;
+					if (isFunction(then)) {
+						then.call(value, function(y) {
+							resolve(child, y);
+						}, function(r) {
+							reject(child, r);
+						});
+					} else {
+						resolveChild(value);
+					}
+				} else {
+					resolveChild(value);
 				}
 			};
 
@@ -55,7 +71,7 @@
 			if (isFunction(onFulfilled)) {
 				try {
 					var returnVal = onFulfilled(thenable._resolvedValue);
-					resolveChild(returnVal);
+					handleReturn(returnVal);
 				} catch (e) {
 					rejectChild(e);
 				}
@@ -66,7 +82,7 @@
 			if (isFunction(onRejected)) {
 				try {
 					var returnVal = onRejected(thenable._rejectedReason);
-					resolveChild(returnVal);
+					handleReturn(returnVal);
 				} catch (e) {
 					rejectChild(e);
 				}
@@ -114,7 +130,8 @@
 	var makeThenable = function() {
 		var thenable = {
 			_thenQueue: [],
-			_state: allStates.pending
+			_state: allStates.pending,
+			_id: ++cid
 		};
 
 		thenable.then = function(onFulfilled, onRejected) {
