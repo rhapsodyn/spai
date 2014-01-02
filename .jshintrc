@@ -14,7 +14,8 @@
         "strictEqual",
         "module",
         "expect",
-        "describe"
+        "describe",
+        "toString"
     ],
 
     "node" : true,

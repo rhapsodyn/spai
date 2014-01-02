@@ -1,4 +1,3 @@
-//todo: merge _rejectedReason and _resolvedValue into _detail
 (function(window) {
 	//latter overwrite former
 	var Spai = window.Spai || {};
@@ -7,87 +6,52 @@
 		return typeof x === "function";
 	};
 	var isObject = function(x) {
-		return typeof x === "object" && x !== null
+		return typeof x === "object" && x !== null;
 	};
 	var allStates = {
 		pending: 0,
 		fulfilled: 1,
 		rejected: 2,
-		sealed: 3 //once resolve or reject
+		sealed: 3 //fullfill or reject but not yet
 	};
 	//easy to debug
 	var cid = 0;
-	var mutationObserver = window.MutationObserver || window.WebKitMutationObserver;
-	//steal form rsvp.js
 	var asyncInvoke = (function() {
 		if (typeof process !== 'undefined' && toString.call(process) === '[object process]') {
 			//node env
 			return function(callback) {
 				process.nextTick(callback);
 			};
-		} else if (mutationObserver) {
-			//modern browser
-			//todo: this impl is not RIGHT
-			return function(callback) {
-				setTimeout(callback, 1);
-			};
 		} else {
-			//old browser
+			//browser env
 			return function(callback) {
 				setTimeout(callback, 1);
 			};
 		}
 	})();
 	var progress = function(thenable, onFulfilled, onRejected, child) {
-		var resolveChild = function(value) {
-			child._state = allStates.fulfilled;
-			child._resolvedValue = value;
-		},
-			rejectChild = function(reason) {
-				child._state = allStates.rejected;
-				child._rejectedReason = reason;
-			},
-			handleReturn = function(value) {
-				if (value === child) {
-					rejectChild(new TypeError("thenable can not return the same promise"));
-				} else if (isFunction(value) || isObject(value)) {
-					//this line is SOMETHING!
-					var then = value.then;
-					if (isFunction(then)) {
-						then.call(value, function(y) {
-							resolve(child, y);
-						}, function(r) {
-							reject(child, r);
-						});
-					} else {
-						resolveChild(value);
-					}
-				} else {
-					resolveChild(value);
-				}
-			};
-
+		var returnVal;
 		if (thenable._state === allStates.fulfilled) {
 			if (isFunction(onFulfilled)) {
 				try {
-					var returnVal = onFulfilled(thenable._resolvedValue);
-					handleReturn(returnVal);
+					returnVal = onFulfilled(thenable._resolvedValue);
+					resolve(child, returnVal);
 				} catch (e) {
-					rejectChild(e);
+					reject(child, e);
 				}
 			} else {
-				resolveChild(thenable._resolvedValue);
+				fulfill(child, thenable._resolvedValue);
 			}
 		} else if (thenable._state === allStates.rejected) {
 			if (isFunction(onRejected)) {
 				try {
-					var returnVal = onRejected(thenable._rejectedReason);
-					handleReturn(returnVal);
+					returnVal = onRejected(thenable._rejectedReason);
+					resolve(child, returnVal);
 				} catch (e) {
-					rejectChild(e);
+					reject(child, e);
 				}
 			} else {
-				rejectChild(thenable._rejectedReason);
+				reject(child, thenable._rejectedReason);
 			}
 		}
 	};
@@ -104,8 +68,50 @@
 			progress(thenable, onFulfilled, onRejected, child);
 			progressAll(child);
 		}
-	}
+	};
 	var resolve = function(thenable, value) {
+		var resolved = false;
+		if (value === thenable) {
+			reject(thenable, new TypeError("thenable can not return the same promise"));
+		} else if (isFunction(value) || isObject(value)) {
+			try {
+				//this line is SOMETHING!
+				var then = value.then;
+				if (isFunction(then)) {
+					then.call(value, function(y) {
+						if (resolved) {
+							return;
+						}
+						resolved = true;
+
+						if (value !== y) {
+							resolve(thenable, y);
+						} else {
+							fulfill(thenable, y);
+						}
+					}, function(r) {
+						if (resolved) {
+							return;
+						}
+						resolved = true;
+
+						reject(thenable, r);
+					});
+				} else {
+					fulfill(thenable, value);
+				}
+			} catch (e) {
+				if (resolved) {
+					return;
+				}
+
+				reject(thenable, e);
+			}
+		} else {
+			fulfill(thenable, value);
+		}
+	};
+	var fulfill = function(thenable, value) {
 		if (thenable._state !== allStates.pending) {
 			return;
 		}

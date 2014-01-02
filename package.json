@@ -1,17 +1,18 @@
 {
   "name": "Spai",
   "version": "0.1.0",
-  "description": "Spai = simple promise/a implementation",
-  "main": "nil",
+  "description": "Spai = simplest promises aplus implementation",
+  "main": "src/Spai.js",
   "scripts": {
-    "test": "nil"
+    "test": "mocha tests/promise-aplus-test-suite.js"
   },
   "repository": {
     "type": "git",
     "url": "https://github.com/rhapsodyn/Spai.git"
   },
   "keywords": [
-    "promise/a"
+    "promises/a+",
+    "promises"
   ],
   "author": "rhapsodyn",
   "license": "MIT",
