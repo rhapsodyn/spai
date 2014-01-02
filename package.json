@@ -1,5 +1,5 @@
 {
-  "name": "Spai",
+  "name": "spai",
   "version": "0.1.0",
   "description": "Spai = simplest promises aplus implementation",
   "main": "src/Spai.js",
